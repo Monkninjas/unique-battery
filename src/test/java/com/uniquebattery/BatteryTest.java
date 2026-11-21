@@ -1,5 +1,6 @@
 package com.uniquebattery;
 
+import java.util.List;
 import java.util.Map;
 import org.junit.Test;
 
@@ -59,5 +60,102 @@ public class BatteryTest
 		assertEquals(BossingLadder.Tier.MASTER, BossingLadder.tombsTier(300));
 		assertEquals(BossingLadder.Tier.MASTER, BossingLadder.tombsTier(499));
 		assertEquals(BossingLadder.Tier.GRANDMASTER, BossingLadder.tombsTier(500));
+	}
+
+	@Test
+	public void dryScorePersistsAndSettlesPositiveAfterAnOverdueUnique()
+	{
+		BossProgress progress = new BossProgress();
+		progress.updateRates(Map.of("zulrah", Map.of("magic fang", 100.0)));
+		BossProgress.Entry zulrah = progress.forBoss("Zulrah");
+		zulrah.complete(100, false);
+		assertEquals(-1, zulrah.score(), 1e-9);
+		zulrah.complete(50, false);
+		assertEquals(-1.5, zulrah.score(), 1e-9);
+		progress.load(progress.save());
+		assertEquals(-1.5, zulrah.score(), 1e-9);
+		zulrah.complete(150, false);
+		assertEquals(-3, zulrah.score(), 1e-9);
+		zulrah.complete(1, true);
+		assertTrue(zulrah.score() > 0);
+		progress.load(progress.save());
+		assertTrue(zulrah.score() > 0);
+	}
+
+	@Test
+	public void activeTimeDrivesPaceAndLogGroupsConsecutiveDrain()
+	{
+		BossProgress progress = new BossProgress();
+		progress.updateRates(Map.of("zulrah", Map.of("magic fang", 100.0)));
+		BossProgress.Entry zulrah = progress.forBoss("Zulrah");
+		zulrah.complete(2, false);
+		for (int tick = 0; tick < 200; tick++)
+		{
+			zulrah.recordActiveTick();
+		}
+		assertTrue(zulrah.summary().contains("60.0 completions/h"));
+
+		BatteryActivityLog log = new BatteryActivityLog();
+		log.drain("Zulrah", 5, 0.2);
+		log.drain("Zulrah", 5, 0.3);
+		log.drain("Fishing", 2, 1.0);
+		log.drain("ZULRAH", 8, 1.0);
+		log.refill("Zulrah", 27);
+		List<BatteryActivityLog.Activity> entries = log.snapshot();
+		assertEquals(4, entries.size());
+		assertTrue(entries.get(0).isRefill());
+		assertEquals(27, entries.get(0).chargeChange(), 0);
+		assertEquals(-0.5, entries.get(3).chargeChange(), 0);
+		assertEquals(2, log.groups().size());
+		assertEquals("Zulrah", log.groups().get(0).name);
+		assertEquals(25.5, log.groups().get(0).net, 0);
+		log.reset(15);
+		assertEquals(15, log.snapshot().get(0).chargeChange(), 0);
+		assertEquals(2, log.groups().size());
+		assertEquals(25.5, log.groups().get(0).net, 0);
+	}
+
+	@Test
+	public void personalBossRatesAllowZeroAndIgnoreInvalidRows()
+	{
+		Map<String, Double> rates = BossingLadder.readPersonalRates(
+			" Zulrah | 3.5; Vorkath | 0;Invalid;Kraken|NaN;Kree'arra|101;General Graardor|-1");
+		assertEquals(Map.of("zulrah", 3.5, "vorkath", 0.0), rates);
+	}
+
+	@Test
+	public void estimatesCollectionLogBaselineAndSettlesOnRateAsNeutral()
+	{
+		assertEquals(1_234, CollectionLogBaseline.completionCount("<col=ff00ff>Zulrah kills: 1,234</col>", false));
+		assertEquals(42, CollectionLogBaseline.completionCount("Delves completed: 123<br>Deep delves completed: 42", true));
+		assertEquals(-1, CollectionLogBaseline.completionCount("Obtained: 3/6", false));
+		BossProgress progress = new BossProgress();
+		progress.updateRates(Map.of("zulrah", Map.of("magic fang", 100.0)));
+		BossProgress.Entry zulrah = progress.forBoss("Zulrah");
+		assertTrue(zulrah.seed(199, 1));
+		assertTrue(progress.statuses().isEmpty());
+		progress.load(progress.save());
+		assertTrue(progress.statuses().isEmpty());
+		assertTrue(zulrah.startTracking());
+		assertEquals("Collection Log estimate", progress.statuses().get(0).baseline);
+		assertEquals(-0.99, zulrah.score(), 1e-9);
+		zulrah.complete(1, true);
+		assertEquals(0, zulrah.score(), 1e-9);
+		assertTrue(!zulrah.seed(300, 1));
+		zulrah.complete(50, false);
+		assertEquals(-0.5, zulrah.score(), 1e-9);
+	}
+
+	@Test
+	public void doomUsesTheDepthOfEachClaimedRun()
+	{
+		assertEquals(0, DoomRates.gearExposure(1), 0);
+		assertEquals(1.0 / 2500, DoomRates.gearExposure(2), 1e-9);
+		assertEquals(2 * DoomRates.deepDelveExposure(), DoomRates.gearExposure(11) - DoomRates.gearExposure(9), 1e-9);
+		assertTrue(DoomRates.itemDenominator(9, "Mokhaiotl cloth", 140)
+			< DoomRates.itemDenominator(8, "Mokhaiotl cloth", 140));
+		BossProgress.Entry doom = new BossProgress().forBoss(DoomRates.NAME);
+		doom.complete(1, false, DoomRates.gearExposure(8));
+		assertEquals(-DoomRates.gearExposure(8), doom.score(), 1e-9);
 	}
 }

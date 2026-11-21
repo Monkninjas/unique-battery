@@ -29,6 +29,18 @@ Each rate is adjustable. Set a rate to zero to pause drain for that activity. No
 
 The tiers are based on a [bundled snapshot of the OSRS Wiki Bossing Ladder](https://oldschool.runescape.wiki/w/Guide:Bossing_Ladder?oldid=15408640). The plugin uses activity state or location where available and otherwise recognizes the NPC you're targeting. It assigns Elite to Tombs of Amascut below 300 invocation. It uses God Wars solo tiers when you're the only visible player in an instance. Hard Mode Theatre of Blood moves to Grandmaster after you target a recognized Hard Mode boss. Awakened Desert Treasure II bosses currently use the normal Elite tier.
 
+The sidebar shows your current activity and drain rate, a charge trace, and up to eight recent activity rows. All drain and refill events from the same activity share a row for the session. History rows use RuneLite's skill and boss icons where available.
+
+Set **Personal boss drain rates** to override the ladder rate for individual bosses. Use the name shown in the battery panel, for example `Zulrah | 3.5; Vorkath | 0`. Each value is the drain in points per minute. Use zero to pause drain for that boss.
+
+Open **Rate guide** under the battery for the formatting rules. When signed in, **Reset battery** restores the current character's charge to 100% and retains the dry streak and activity totals.
+
+## Dry streaks
+
+The **Dry streaks** tab tracks Zulrah, Vorkath, Kraken, the four original God Wars generals, and Doom of Mokhaiotl. Each completion without a tracked unique moves the score farther below zero. A unique within the expected rate settles the row at zero, and an overdue unique settles it above zero by the overdue amount. The next dry streak starts again from zero. Each character's score persists across sessions and advances with completions, regardless of time away. The battery drains at its configured rates. Doom's score uses the depth of each claimed run and the three gear uniques. [OSRS Wiki Doom loot table](https://oldschool.runescape.wiki/w/Doom_of_Mokhaiotl#Depth_Loot_Mechanics)
+
+The first time you fight a supported boss, the tab shows its saved Collection Log estimate if available. When the tab asks for a baseline, open that boss's Collection Log page once from the normal game world. The estimate uses surplus kills after accounting for logged uniques. Doom uses the deep-delve counter for its estimate. A unique observed by the plugin starts a newly tracked streak.
+
 ## Refill
 
 Adjust the rarity and value contributions independently. Higher drop denominators and higher Grand Exchange values each give more charge, with diminishing returns. A unique without a market value can still charge from rarity. Raid rates are reference values for scoring, since actual purple odds depend on the run.

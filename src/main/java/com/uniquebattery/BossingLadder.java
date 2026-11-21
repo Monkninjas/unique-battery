@@ -48,6 +48,32 @@ final class BossingLadder
 		return name != null && npcTier(name, true) != npcTier(name, false);
 	}
 
+	static Map<String, Double> readPersonalRates(String settings)
+	{
+		Map<String, Double> rates = new HashMap<>();
+		for (String rule : settings.split(";"))
+		{
+			String[] fields = rule.split("\\|", -1);
+			if (fields.length != 2 || fields[0].isBlank())
+			{
+				continue;
+			}
+			try
+			{
+				double rate = Double.parseDouble(fields[1].trim());
+				if (Double.isFinite(rate) && rate >= 0 && rate <= 100)
+				{
+					rates.put(fields[0].trim().toLowerCase(Locale.ROOT), rate == 0 ? 0.0 : rate);
+				}
+			}
+			catch (NumberFormatException ignored)
+			{
+				// A malformed override only affects that entry.
+			}
+		}
+		return Map.copyOf(rates);
+	}
+
 	static Tier tombsTier(int raidLevel)
 	{
 		if (raidLevel >= 500)
@@ -72,7 +98,7 @@ final class BossingLadder
 			+ "|Tormented Demon|Crystalline Hunllef|Abyssal Sire|Cerberus|Araxxor|Alchemical Hydra|Corporeal Beast|Kalphite Queen");
 		add(tiers, Tier.ELITE, "Zulrah|Vorkath|Phantom Muspah|Duke Sucellus|Maggot King|Corrupted Hunllef"
 			+ "|The Whisperer|The Leviathan|Vardorvis|Nex|Yama");
-		add(tiers, Tier.MASTER, "The Nightmare|Nightmare|Phosani's Nightmare|Demonic Brutus|Doom of Mokhaiotl|Sol Heredit|TzKal-Zuk");
+		add(tiers, Tier.MASTER, "The Nightmare|Nightmare|Phosani's Nightmare|Demonic Brutus|Doom of Mokhaiotl|The Doom of Mokhaiotl|Sol Heredit|TzKal-Zuk");
 		return Map.copyOf(tiers);
 	}
 

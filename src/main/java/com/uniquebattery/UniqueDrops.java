@@ -78,6 +78,9 @@ final class UniqueDrops
 		add(drops, "General Graardor", 381, "Bandos chestplate|Bandos tassets|Bandos boots");
 		add(drops, "Commander Zilyana", 508, "Armadyl crossbow|Saradomin's light");
 		add(drops, "Kree'arra", 381, "Armadyl helmet|Armadyl chestplate|Armadyl chainskirt");
+		add(drops, DoomRates.NAME, 140, "Mokhaiotl cloth");
+		add(drops, DoomRates.NAME, 148, "Eye of ayak (uncharged)|Eye of ayak");
+		add(drops, DoomRates.NAME, 160, "Avernic treads");
 
 		add(drops, "Reward cart (Wintertodt)", 1_000, "Tome of fire (empty)|Tome of fire");
 		add(drops, "Reward cart (Wintertodt)", 10_000, "Dragon axe");

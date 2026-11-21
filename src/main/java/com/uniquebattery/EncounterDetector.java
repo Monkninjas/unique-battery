@@ -29,6 +29,7 @@ final class EncounterDetector
 
 	private final Client client;
 	private boolean hardTheatre;
+	private String activityName;
 
 	@Inject
 	EncounterDetector(Client client)
@@ -38,6 +39,7 @@ final class EncounterDetector
 
 	BossingLadder.Tier tier(Player player)
 	{
+		activityName = null;
 		Actor target = player.getInteracting();
 		NPC npc = target instanceof NPC ? (NPC) target : null;
 		WorldView world = client.getTopLevelWorldView();
@@ -61,17 +63,33 @@ final class EncounterDetector
 		}
 
 		String name = npc.getName();
+		if ("The Doom of Mokhaiotl".equalsIgnoreCase(name))
+		{
+			name = DoomRates.NAME;
+		}
 		if ("Yama".equalsIgnoreCase(name) && client.getVarbitValue(VarbitID.YAMA_IMP_CONTRACT_SIGNED) > 0)
 		{
-			return GRANDMASTER;
+			return identify("Yama contract", GRANDMASTER);
 		}
 		boolean soloGodWars = instanced && BossingLadder.isGodWarsGeneral(name) && isOnlyPlayer(world, player);
-		return BossingLadder.npcTier(name, soloGodWars);
+		return identify(name, BossingLadder.npcTier(name, soloGodWars));
+	}
+
+	String activityName()
+	{
+		return activityName;
 	}
 
 	void reset()
 	{
 		hardTheatre = false;
+		activityName = null;
+	}
+
+	private BossingLadder.Tier identify(String name, BossingLadder.Tier tier)
+	{
+		activityName = tier == null ? null : name;
+		return tier;
 	}
 
 	private BossingLadder.Tier raidTier(boolean instanced, NPC npc)
@@ -79,20 +97,22 @@ final class EncounterDetector
 		if (instanced && client.getVarbitValue(VarbitID.TOB_CLIENT_PARTYSTATUS) == 2)
 		{
 			hardTheatre |= npc != null && HARD_THEATRE_NPCS.contains(npc.getId());
-			return hardTheatre ? GRANDMASTER : MASTER;
+			return hardTheatre ? identify("Hard Mode Theatre of Blood", GRANDMASTER)
+				: identify("Theatre of Blood", MASTER);
 		}
 		hardTheatre = false;
 		if (client.getVarbitValue(VarbitID.RAIDS_CLIENT_INDUNGEON) == 1)
 		{
-			return client.getVarbitValue(VarbitID.RAIDS_CHALLENGE_MODE) == 1 ? GRANDMASTER : MASTER;
+			return client.getVarbitValue(VarbitID.RAIDS_CHALLENGE_MODE) == 1
+				? identify("Challenge Mode Chambers of Xeric", GRANDMASTER) : identify("Chambers of Xeric", MASTER);
 		}
 		if (instanced && client.getVarbitValue(VarbitID.TOA_CLIENT_PARTYSTATUS) == 2)
 		{
-			return BossingLadder.tombsTier(client.getVarbitValue(VarbitID.TOA_CLIENT_RAID_LEVEL));
+			return identify("Tombs of Amascut", BossingLadder.tombsTier(client.getVarbitValue(VarbitID.TOA_CLIENT_RAID_LEVEL)));
 		}
 		if (instanced && client.getVarbitValue(VarbitID.TFA_CLIENT_PARTYSTATUS) == 2)
 		{
-			return MASTER;
+			return identify("The Fractured Archive", MASTER);
 		}
 		return null;
 	}
@@ -101,7 +121,7 @@ final class EncounterDetector
 	{
 		if (region == WINTERTODT_REGION || region == TEMPOROSS_REGION)
 		{
-			return EASY;
+			return identify(region == WINTERTODT_REGION ? "Wintertodt" : "Tempoross", EASY);
 		}
 		if (!instanced)
 		{
@@ -109,17 +129,17 @@ final class EncounterDetector
 		}
 		if (client.getVarbitValue(VarbitID.PLAYER_IN_GAUNTLET) == 1)
 		{
-			return region == CORRUPTED_GAUNTLET_REGION ? ELITE : HARD;
+			return region == CORRUPTED_GAUNTLET_REGION ? identify("Corrupted Gauntlet", ELITE) : identify("Gauntlet", HARD);
 		}
 		if (client.getVarbitValue(VarbitID.BARBASSAULT_AREAEXIT_PENDING) == 1)
 		{
-			return MEDIUM;
+			return identify("Barbarian Assault", MEDIUM);
 		}
 		if (region == FIGHT_CAVES_REGION)
 		{
-			return HARD;
+			return identify("Fight Caves", HARD);
 		}
-		return region == INFERNO_REGION ? MASTER : null;
+		return region == INFERNO_REGION ? identify("Inferno", MASTER) : null;
 	}
 
 	private static boolean isOnlyPlayer(WorldView world, Player player)

@@ -3,6 +3,7 @@ package com.uniquebattery;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
+import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.GradientPaint;
@@ -12,7 +13,13 @@ import java.awt.RenderingHints;
 import java.awt.geom.Path2D;
 import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
+import java.util.List;
+import javax.swing.JButton;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
 import javax.swing.JProgressBar;
+import javax.swing.JTabbedPane;
+import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
 import net.runelite.client.ui.PluginPanel;
@@ -23,16 +30,70 @@ final class UniqueBatteryPanel extends PluginPanel
 	private static final Color MEDIUM = new Color(210, 154, 67);
 	private static final Color LOW = new Color(202, 95, 89);
 	private final JProgressBar meter = new BatteryMeter();
+	private final JButton resetButton = new JButton("Reset battery");
+	private final JPanel activityPanel = new JPanel();
+	private final JTextArea currentActivity = textArea();
+	private final BatteryHistoryPanel activityHistory;
+	private final DryStreakPanel dryStreaks;
+	private volatile ActivityView activityView = new ActivityView("", List.of(), List.of(), 0, List.of());
+	private ActivityView shownActivity;
 	private volatile int currentPercent = -1;
 	private volatile boolean active;
 	private int displayedPercent = -1;
 
-	UniqueBatteryPanel()
+	UniqueBatteryPanel(ActivityIcons icons, Runnable resetBattery)
 	{
+		activityHistory = new BatteryHistoryPanel(icons);
+		dryStreaks = new DryStreakPanel(icons);
 		setLayout(new BorderLayout());
-		setBorder(new EmptyBorder(16, 10, 12, 10));
+		setBorder(new EmptyBorder(7, 7, 9, 7));
+		JPanel batteryTab = new JPanel(new BorderLayout());
+		batteryTab.setOpaque(false);
+		batteryTab.setBorder(new EmptyBorder(12, 4, 6, 4));
 		meter.getAccessibleContext().setAccessibleName("Unique Battery charge");
-		add(meter, BorderLayout.NORTH);
+		batteryTab.add(meter, BorderLayout.NORTH);
+		activityPanel.setOpaque(false);
+		activityPanel.setBorder(new EmptyBorder(14, 1, 0, 1));
+		activityPanel.setLayout(new BorderLayout());
+		currentActivity.getAccessibleContext().setAccessibleName("Current activity and drain rate");
+		activityPanel.add(currentActivity, BorderLayout.NORTH);
+		activityPanel.add(activityHistory, BorderLayout.CENTER);
+		activityPanel.setVisible(false);
+
+		JPanel actions = new JPanel(new FlowLayout(FlowLayout.CENTER, 4, 0));
+		actions.setOpaque(false);
+		resetButton.setToolTipText("Restore the battery to 100%");
+		resetButton.addActionListener(event -> resetBattery.run());
+		resetButton.setVisible(false);
+		actions.add(resetButton);
+		JButton rateGuide = new JButton("Rate guide");
+		rateGuide.addActionListener(event -> showRateGuide());
+		actions.add(rateGuide);
+
+		JPanel belowMeter = new JPanel(new BorderLayout());
+		belowMeter.setOpaque(false);
+		belowMeter.add(actions, BorderLayout.NORTH);
+		belowMeter.add(activityPanel, BorderLayout.CENTER);
+		batteryTab.add(belowMeter, BorderLayout.CENTER);
+		JTabbedPane tabs = new JTabbedPane();
+		tabs.addTab("Battery", batteryTab);
+		tabs.addTab("Dry streaks", dryStreaks);
+		add(tabs, BorderLayout.CENTER);
+	}
+
+	private void showRateGuide()
+	{
+		JTextArea guide = textArea();
+		guide.setColumns(43);
+		guide.setRows(12);
+		guide.setText("Open Configuration → Unique Battery → Personal boss drain rates.\n\n"
+			+ "Use the activity name shown on the battery panel, followed by | and a base rate from 0 to 100 points per minute. "
+			+ "Separate multiple bosses with semicolons.\n\n"
+			+ "Zulrah | 3.5; Vorkath | 0\n\n"
+			+ "This sets Zulrah to 3.5 points per minute and pauses drain at Vorkath. "
+			+ "Bosses without an entry use their ladder rate.");
+		guide.setCaretPosition(0);
+		JOptionPane.showMessageDialog(this, guide, "Personal boss drain rates", JOptionPane.PLAIN_MESSAGE);
 	}
 
 	void showCharge(int percent)
@@ -48,11 +109,70 @@ final class UniqueBatteryPanel extends PluginPanel
 		}
 	}
 
+	void showActivity(String activeActivity, List<BatteryActivityLog.Activity> recentActivity,
+		List<BatteryActivityLog.Group> groups, double charge, List<BossProgress.Status> streaks)
+	{
+		activityView = new ActivityView(activeActivity, recentActivity, groups, charge, streaks);
+		if (active)
+		{
+			SwingUtilities.invokeLater(this::refreshActivity);
+		}
+	}
+
 	@Override
 	public void onActivate()
 	{
 		active = true;
 		refreshMeter();
+		refreshActivity();
+	}
+
+	private void refreshActivity()
+	{
+		ActivityView view = activityView;
+		if (!active || shownActivity == view)
+		{
+			return;
+		}
+		shownActivity = view;
+		if (!view.status.equals(currentActivity.getText()))
+		{
+			currentActivity.setText(view.status);
+		}
+		activityHistory.showHistory(view.history, view.groups, view.charge);
+		dryStreaks.showStreaks(view.streaks);
+		currentActivity.setVisible(!view.status.isEmpty());
+		activityPanel.setVisible(!view.status.isEmpty() || !view.groups.isEmpty() || !view.history.isEmpty());
+	}
+
+	private static final class ActivityView
+	{
+		private final String status;
+		private final List<BatteryActivityLog.Activity> history;
+		private final List<BatteryActivityLog.Group> groups;
+		private final double charge;
+		private final List<BossProgress.Status> streaks;
+
+		private ActivityView(String status, List<BatteryActivityLog.Activity> history,
+			List<BatteryActivityLog.Group> groups, double charge, List<BossProgress.Status> streaks)
+		{
+			this.status = status;
+			this.history = history;
+			this.groups = groups;
+			this.charge = charge;
+			this.streaks = streaks;
+		}
+	}
+
+	private static JTextArea textArea()
+	{
+		JTextArea area = new JTextArea(0, 16);
+		area.setEditable(false);
+		area.setOpaque(false);
+		area.setLineWrap(true);
+		area.setWrapStyleWord(true);
+		area.setAlignmentX(LEFT_ALIGNMENT);
+		return area;
 	}
 
 	@Override
@@ -68,6 +188,7 @@ final class UniqueBatteryPanel extends PluginPanel
 		{
 			meter.setValue(Math.max(0, percent));
 			meter.setString(percent < 0 ? "Log in to view" : percent + "%");
+			resetButton.setVisible(percent >= 0);
 			displayedPercent = percent;
 		}
 	}

@@ -97,4 +97,11 @@ public interface UniqueBatteryConfig extends Config
 	{
 		return "";
 	}
+
+	@ConfigItem(position = 12, keyName = "personalBossRates", name = "Personal boss drain rates",
+		description = "Example: Zulrah | 3.5; Vorkath | 0. Use the rate guide on the battery panel for details.")
+	default String personalBossRates()
+	{
+		return "";
+	}
 }

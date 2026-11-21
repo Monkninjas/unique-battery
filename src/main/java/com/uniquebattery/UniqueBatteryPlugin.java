@@ -2,16 +2,24 @@ package com.uniquebattery;
 
 import com.google.inject.Provides;
 import java.util.EnumMap;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import javax.inject.Inject;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.Player;
+import net.runelite.api.ScriptID;
 import net.runelite.api.Skill;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
+import net.runelite.api.events.ScriptPostFired;
 import net.runelite.api.events.StatChanged;
+import net.runelite.api.gameval.InterfaceID;
+import net.runelite.api.widgets.Widget;
+import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ConfigChanged;
@@ -23,6 +31,7 @@ import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.plugins.loottracker.LootReceived;
 import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.NavigationButton;
+import net.runelite.client.util.Text;
 import net.runelite.http.api.loottracker.LootRecordType;
 
 @PluginDescriptor(
@@ -33,6 +42,8 @@ import net.runelite.http.api.loottracker.LootRecordType;
 public final class UniqueBatteryPlugin extends Plugin
 {
 	private static final String CHARGE_KEY = "charge";
+	private static final String DRY_STREAKS_KEY = "dryStreaks";
+	private static final int ACTIVITY_REFRESH_TICKS = 10;
 	private static final int SAVE_INTERVAL_TICKS = 50;
 	private static final int IDLE_CLIENT_TICKS = 3_000;
 	private static final int SKILLING_WINDOW_TICKS = 34;
@@ -41,27 +52,36 @@ public final class UniqueBatteryPlugin extends Plugin
 	);
 
 	@Inject private Client client;
+	@Inject private ClientThread clientThread;
 	@Inject private ClientToolbar toolbar;
 	@Inject private ConfigManager configManager;
 	@Inject private UniqueBatteryConfig config;
 	@Inject private ItemManager itemManager;
 	@Inject private EncounterDetector encounters;
+	@Inject private ActivityIcons activityIcons;
 
 	private final Map<Skill, Integer> skillXp = new EnumMap<>(Skill.class);
+	private final BossProgress bossProgress = new BossProgress();
+	private final BatteryActivityLog activityLog = new BatteryActivityLog();
 	private NavigationButton navigation;
 	private UniqueBatteryPanel panel;
 	private Map<String, Map<String, Double>> uniqueDrops = Map.of();
+	private Map<String, Double> personalBossRates = Map.of();
 	private final int[] encounterDrain = new int[BossingLadder.Tier.values().length];
 	private int regularDrain;
 	private int skillingDrain;
 	private int rarityRefill;
 	private int valueRefill;
-	private boolean drainEnabled;
 	private String profileKey;
 	private double charge = Battery.FULL;
 	private boolean dirty;
+	private boolean progressDirty;
 	private int ticksSinceSave;
 	private int skillingTicks;
+	private Skill currentSkill;
+	private int activityTicks;
+	private String activeActivity;
+	private double activeDrainRate;
 
 	@Provides
 	UniqueBatteryConfig provideConfig(ConfigManager manager)
@@ -73,8 +93,8 @@ public final class UniqueBatteryPlugin extends Plugin
 	protected synchronized void startUp()
 	{
 		readSettings();
-		uniqueDrops = UniqueDrops.withOverrides(config.customUniques());
-		panel = new UniqueBatteryPanel();
+		readUniqueDrops();
+		panel = new UniqueBatteryPanel(activityIcons, this::requestBatteryReset);
 		navigation = NavigationButton.builder()
 			.tooltip("Unique Battery")
 			.icon(UniqueBatteryPanel.icon())
@@ -87,7 +107,7 @@ public final class UniqueBatteryPlugin extends Plugin
 	@Override
 	protected synchronized void shutDown()
 	{
-		saveCharge();
+		saveState();
 		profileKey = null;
 		resetActivity();
 		toolbar.removeNavigation(navigation);
@@ -98,13 +118,14 @@ public final class UniqueBatteryPlugin extends Plugin
 	@Subscribe
 	public synchronized void onConfigChanged(ConfigChanged event)
 	{
-		if (!UniqueBatteryConfig.GROUP.equals(event.getGroup()) || CHARGE_KEY.equals(event.getKey()))
+		if (!UniqueBatteryConfig.GROUP.equals(event.getGroup()) || CHARGE_KEY.equals(event.getKey())
+			|| DRY_STREAKS_KEY.equals(event.getKey()))
 		{
 			return;
 		}
 		if ("customUniques".equals(event.getKey()))
 		{
-			uniqueDrops = UniqueDrops.withOverrides(config.customUniques());
+			readUniqueDrops();
 		}
 		else
 		{
@@ -116,7 +137,7 @@ public final class UniqueBatteryPlugin extends Plugin
 	public synchronized void onProfileChanged(ProfileChanged event)
 	{
 		readSettings();
-		uniqueDrops = UniqueDrops.withOverrides(config.customUniques());
+		readUniqueDrops();
 	}
 
 	@Subscribe
@@ -124,10 +145,11 @@ public final class UniqueBatteryPlugin extends Plugin
 	{
 		if (event.getGameState() == GameState.LOGIN_SCREEN || event.getGameState() == GameState.LOGIN_SCREEN_AUTHENTICATOR)
 		{
-			saveCharge();
+			saveState();
 			profileKey = null;
 			resetActivity();
 			updateMeter();
+			updateActivity();
 		}
 	}
 
@@ -140,18 +162,14 @@ public final class UniqueBatteryPlugin extends Plugin
 			return;
 		}
 
-		if (drainEnabled && charge > 0 && (skillingTicks > 0
-			|| client.getMouseIdleTicks() < IDLE_CLIENT_TICKS || client.getKeyboardIdleTicks() < IDLE_CLIENT_TICKS))
-		{
-			setCharge(Battery.drain(charge, drainRate(player)));
-		}
+		tickActivity(player);
 		if (skillingTicks > 0)
 		{
 			--skillingTicks;
 		}
-		if (dirty && ++ticksSinceSave >= SAVE_INTERVAL_TICKS)
+		if ((dirty || progressDirty) && ++ticksSinceSave >= SAVE_INTERVAL_TICKS)
 		{
-			saveCharge();
+			saveState();
 		}
 	}
 
@@ -166,24 +184,31 @@ public final class UniqueBatteryPlugin extends Plugin
 		if (previous != null && event.getXp() > previous)
 		{
 			skillingTicks = SKILLING_WINDOW_TICKS;
+			currentSkill = event.getSkill();
 		}
 	}
 
 	@Subscribe
 	public synchronized void onLootReceived(LootReceived event)
 	{
-		if ((rarityRefill == 0 && valueRefill == 0) || client.getGameState() != GameState.LOGGED_IN
+		if (client.getGameState() != GameState.LOGGED_IN
 			|| (event.getType() != LootRecordType.NPC && event.getType() != LootRecordType.EVENT))
 		{
 			return;
 		}
 
 		Map<String, Double> sourceDrops = UniqueDrops.forSource(uniqueDrops, event.getName());
-		if (sourceDrops.isEmpty() || !loadProfile() || charge >= Battery.FULL)
+		int doomDepth = DoomRates.NAME.equals(event.getName()) && event.getMetadata() instanceof Integer
+			? (Integer) event.getMetadata() : 0;
+		BossProgress.Entry boss = event.getType() == LootRecordType.NPC || doomDepth > 0
+			? bossProgress.forBoss(event.getName()) : null;
+		if (sourceDrops.isEmpty() || !loadProfile()
+			|| (boss == null && (charge >= Battery.FULL || (rarityRefill == 0 && valueRefill == 0))))
 		{
 			return;
 		}
 		double restored = charge;
+		boolean unique = false;
 		for (ItemStack stack : event.getItems())
 		{
 			long quantity = stack.getQuantity();
@@ -196,8 +221,17 @@ public final class UniqueBatteryPlugin extends Plugin
 			double denominator = UniqueDrops.denominator(sourceDrops, item);
 			if (denominator > 1)
 			{
+				unique = true;
+				if (restored >= Battery.FULL)
+				{
+					break;
+				}
 				long unitPrice = valueRefill == 0 ? 0 : itemManager.getItemPrice(id);
 				long value = unitPrice > Long.MAX_VALUE / quantity ? Long.MAX_VALUE : unitPrice * quantity;
+				if (doomDepth > 0)
+				{
+					denominator = DoomRates.itemDenominator(doomDepth, item, denominator);
+				}
 				restored = Battery.refill(restored, denominator, value, rarityRefill, valueRefill);
 				if (restored >= Battery.FULL)
 				{
@@ -205,17 +239,126 @@ public final class UniqueBatteryPlugin extends Plugin
 				}
 			}
 		}
+		if (boss != null)
+		{
+			boss.complete(Math.max(1, event.getAmount()), unique, DoomRates.gearExposure(doomDepth));
+			progressDirty = true;
+		}
 		if (charge != restored)
 		{
+			activityLog.refill(event.getName(), restored - charge);
 			setCharge(restored);
-			saveCharge();
+			saveState();
+		}
+		else if (boss != null && unique)
+		{
+			saveState();
+		}
+		if (boss != null || unique)
+		{
+			updateActivity();
 		}
 	}
 
-	private int drainRate(Player player)
+	@Subscribe
+	public synchronized void onScriptPostFired(ScriptPostFired event)
 	{
-		BossingLadder.Tier tier = encounters.tier(player);
-		return tier != null ? encounterDrain[tier.ordinal()] : skillingTicks > 0 ? skillingDrain : regularDrain;
+		if (event.getScriptId() != ScriptID.COLLECTION_DRAW_LIST
+			|| client.getGameState() != GameState.LOGGED_IN
+			|| client.getTopLevelWorldView().isInstance())
+		{
+			return;
+		}
+		Widget header = client.getWidget(InterfaceID.Collection.HEADER_TEXT);
+		Widget items = client.getWidget(InterfaceID.Collection.ITEMS_CONTENTS);
+		if (header == null || items == null || header.isHidden() || header.getChild(0) == null
+			|| header.getChildren() == null || items.getChildren() == null)
+		{
+			return;
+		}
+		String source = Text.removeTags(header.getChild(0).getText()).trim();
+		if ("The Doom of Mokhaiotl".equalsIgnoreCase(source))
+		{
+			source = DoomRates.NAME;
+		}
+		BossProgress.Entry boss = bossProgress.forBoss(source);
+		if (boss == null || !loadProfile() || boss.hasBaseline())
+		{
+			return;
+		}
+		int completed = -1;
+		for (Widget child : header.getChildren())
+		{
+			if (child != null && child.getText() != null)
+			{
+				completed = CollectionLogBaseline.completionCount(child.getText(), DoomRates.NAME.equalsIgnoreCase(source));
+				if (completed >= 0)
+				{
+					break;
+				}
+			}
+		}
+		if (completed < 0)
+		{
+			return;
+		}
+		Map<String, Double> tracked = UniqueDrops.forSource(uniqueDrops, source);
+		int uniques = 0;
+		for (Widget child : items.getChildren())
+		{
+			if (child != null && child.getItemId() > 0 && child.getOpacity() == 0)
+			{
+				int id = itemManager.canonicalize(child.getItemId());
+				if (UniqueDrops.denominator(tracked, itemManager.getItemComposition(id).getName()) > 1)
+				{
+					uniques += Math.max(1, child.getItemQuantity());
+				}
+			}
+		}
+		if (boss.seed(completed, uniques))
+		{
+			progressDirty = true;
+			saveState();
+			updateActivity();
+		}
+	}
+
+	private void tickActivity(Player player)
+	{
+		String activity = null;
+		double rate = 0;
+		if (skillingTicks > 0 || client.getMouseIdleTicks() < IDLE_CLIENT_TICKS
+			|| client.getKeyboardIdleTicks() < IDLE_CLIENT_TICKS)
+		{
+			BossingLadder.Tier tier = encounters.tier(player);
+			activity = tier != null ? encounters.activityName()
+				: skillingTicks > 0 ? currentSkill.getName() : "Regular play";
+			rate = tier != null ? encounterDrain[tier.ordinal()] : skillingTicks > 0 ? skillingDrain : regularDrain;
+			if (tier != null && !personalBossRates.isEmpty())
+			{
+				Double personalRate = personalBossRates.get(activity.toLowerCase(Locale.ROOT));
+				if (personalRate != null)
+				{
+					rate = personalRate;
+				}
+			}
+			BossProgress.Entry boss = tier == null ? null : bossProgress.forBoss(activity);
+			if (boss != null)
+			{
+				progressDirty |= boss.startTracking();
+				boss.recordActiveTick();
+			}
+			double drained = Battery.drain(charge, rate);
+			activityLog.drain(activity, rate, charge - drained);
+			setCharge(drained);
+		}
+		boolean changed = !Objects.equals(activeActivity, activity) || activeDrainRate != rate;
+		activeActivity = activity;
+		activeDrainRate = rate;
+		if (changed || ++activityTicks >= ACTIVITY_REFRESH_TICKS)
+		{
+			updateActivity();
+		}
 	}
 
 	private void readSettings()
@@ -230,11 +373,13 @@ public final class UniqueBatteryPlugin extends Plugin
 		encounterDrain[BossingLadder.Tier.GRANDMASTER.ordinal()] = config.grandmasterDrain();
 		rarityRefill = config.rarityRefill();
 		valueRefill = config.valueRefill();
-		drainEnabled = regularDrain != 0 || skillingDrain != 0;
-		for (int rate : encounterDrain)
-		{
-			drainEnabled |= rate != 0;
-		}
+		personalBossRates = BossingLadder.readPersonalRates(config.personalBossRates());
+	}
+
+	private void readUniqueDrops()
+	{
+		uniqueDrops = UniqueDrops.withOverrides(config.customUniques());
+		bossProgress.updateRates(uniqueDrops);
 	}
 
 	private boolean loadProfile()
@@ -246,9 +391,10 @@ public final class UniqueBatteryPlugin extends Plugin
 		}
 		if (!currentKey.equals(profileKey))
 		{
-			saveCharge();
+			saveState();
 			profileKey = currentKey;
 			resetActivity();
+			bossProgress.load(configManager.getConfiguration(UniqueBatteryConfig.GROUP, profileKey, DRY_STREAKS_KEY, String.class));
 			for (Skill skill : Skill.values())
 			{
 				skillXp.put(skill, client.getSkillExperience(skill));
@@ -256,6 +402,7 @@ public final class UniqueBatteryPlugin extends Plugin
 			Double saved = configManager.getConfiguration(UniqueBatteryConfig.GROUP, profileKey, CHARGE_KEY, Double.class);
 			charge = saved == null ? Battery.FULL : Battery.clamp(saved);
 			updateMeter();
+			updateActivity();
 		}
 		return true;
 	}
@@ -264,6 +411,10 @@ public final class UniqueBatteryPlugin extends Plugin
 	{
 		skillXp.clear();
 		skillingTicks = 0;
+		currentSkill = null;
+		activeActivity = null;
+		activeDrainRate = 0;
+		activityLog.clear();
 		encounters.reset();
 	}
 
@@ -277,12 +428,40 @@ public final class UniqueBatteryPlugin extends Plugin
 		}
 	}
 
-	private void saveCharge()
+	private synchronized void requestBatteryReset()
+	{
+		String requestedProfile = profileKey;
+		if (requestedProfile != null)
+		{
+			clientThread.invokeLater(() -> resetBattery(requestedProfile));
+		}
+	}
+
+	private synchronized void resetBattery(String requestedProfile)
+	{
+		if (panel == null || client.getGameState() != GameState.LOGGED_IN
+			|| !requestedProfile.equals(profileKey) || !requestedProfile.equals(configManager.getRSProfileKey())
+			|| charge >= Battery.FULL)
+		{
+			return;
+		}
+		activityLog.reset(Battery.FULL - charge);
+		setCharge(Battery.FULL);
+		saveState();
+		updateActivity();
+	}
+
+	private void saveState()
 	{
 		if (dirty && profileKey != null)
 		{
 			dirty = false;
 			configManager.setConfiguration(UniqueBatteryConfig.GROUP, profileKey, CHARGE_KEY, charge);
+		}
+		if (progressDirty && profileKey != null)
+		{
+			progressDirty = false;
+			configManager.setConfiguration(UniqueBatteryConfig.GROUP, profileKey, DRY_STREAKS_KEY, bossProgress.save());
 		}
 		ticksSinceSave = 0;
 	}
@@ -293,5 +472,22 @@ public final class UniqueBatteryPlugin extends Plugin
 		{
 			panel.showCharge(profileKey == null ? -1 : (int) Math.ceil(charge));
 		}
+	}
+
+	private void updateActivity()
+	{
+		activityTicks = 0;
+		if (panel == null)
+		{
+			return;
+		}
+		if (profileKey == null)
+		{
+			panel.showActivity("", List.of(), List.of(), 0, List.of());
+			return;
+		}
+		String status = activeActivity == null ? "Drain paused"
+			: activeActivity + "\n" + BatteryActivityLog.rate(activeDrainRate);
+		panel.showActivity(status, activityLog.snapshot(), activityLog.groups(), charge, bossProgress.statuses());
 	}
 }

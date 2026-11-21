@@ -9,7 +9,7 @@ final class Battery
 	{
 	}
 
-	static double drain(double charge, int pointsPerMinute)
+	static double drain(double charge, double pointsPerMinute)
 	{
 		return clamp(charge - pointsPerMinute / TICKS_PER_MINUTE);
 	}
