@@ -9,6 +9,7 @@ import java.awt.GradientPaint;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
+import java.awt.geom.Path2D;
 import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
 import javax.swing.JProgressBar;
@@ -74,14 +75,15 @@ final class UniqueBatteryPanel extends PluginPanel
 	private static final class BatteryMeter extends JProgressBar
 	{
 		private static final int WIDTH = 90;
-		private static final int HEIGHT = 174;
+		private static final int HEIGHT = 182;
 		private static final int CASE_X = 9;
 		private static final int CASE_WIDTH = WIDTH - 2 * CASE_X;
 		private static final int CASE_HEIGHT = 140;
 		private static final Color CASE_EDGE = new Color(163, 173, 178);
 		private static final Color INTERIOR = new Color(23, 28, 31);
 		private static final Color LABEL = new Color(237, 241, 242);
-		private static final Color SIGN_IN_LABEL = new Color(179, 190, 195);
+		private static final Color EMPTY_BOLT = new Color(223, 173, 76);
+		private static final Path2D BOLT = createBolt();
 
 		private BatteryMeter()
 		{
@@ -129,6 +131,8 @@ final class UniqueBatteryPanel extends PluginPanel
 			graphics.fill(interior);
 			if (percent == 0)
 			{
+				graphics.setColor(EMPTY_BOLT);
+				graphics.fill(BOLT);
 				return;
 			}
 
@@ -150,17 +154,30 @@ final class UniqueBatteryPanel extends PluginPanel
 		private void paintLabel(Graphics2D graphics, String label)
 		{
 			boolean signedIn = label.endsWith("%");
-			graphics.setFont(getFont().deriveFont(signedIn ? Font.BOLD : Font.PLAIN, signedIn ? 20f : 11f));
+			graphics.setFont(getFont().deriveFont(Font.BOLD, signedIn ? 20f : 14f));
 			FontMetrics metrics = graphics.getFontMetrics();
 			int x = (WIDTH - metrics.stringWidth(label)) / 2;
-			int baseline = signedIn ? 88 : 169;
+			int baseline = signedIn ? 88 : 174;
 			if (signedIn)
 			{
 				graphics.setColor(INTERIOR);
 				graphics.drawString(label, x, baseline + 1);
 			}
-			graphics.setColor(signedIn ? LABEL : SIGN_IN_LABEL);
+			graphics.setColor(LABEL);
 			graphics.drawString(label, x, baseline);
+		}
+
+		private static Path2D createBolt()
+		{
+			Path2D bolt = new Path2D.Float();
+			bolt.moveTo(49, 100);
+			bolt.lineTo(35, 118);
+			bolt.lineTo(44, 118);
+			bolt.lineTo(41, 132);
+			bolt.lineTo(55, 113);
+			bolt.lineTo(46, 113);
+			bolt.closePath();
+			return bolt;
 		}
 	}
 
