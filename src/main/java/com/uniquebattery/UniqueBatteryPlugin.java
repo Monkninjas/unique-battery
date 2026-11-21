@@ -19,10 +19,8 @@ import net.runelite.client.events.ProfileChanged;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.ItemStack;
 import net.runelite.client.plugins.Plugin;
-import net.runelite.client.plugins.PluginDependency;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.plugins.loottracker.LootReceived;
-import net.runelite.client.plugins.loottracker.LootTrackerPlugin;
 import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.NavigationButton;
 import net.runelite.http.api.loottracker.LootRecordType;
@@ -32,7 +30,6 @@ import net.runelite.http.api.loottracker.LootRecordType;
 	description = "A side-panel battery charged by unique drops and drained by play.",
 	tags = {"loot", "unique", "battery", "pvm"}
 )
-@PluginDependency(LootTrackerPlugin.class)
 public final class UniqueBatteryPlugin extends Plugin
 {
 	private static final String CHARGE_KEY = "charge";
