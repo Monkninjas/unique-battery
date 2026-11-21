@@ -18,6 +18,7 @@ import net.runelite.api.events.GameTick;
 import net.runelite.api.events.ScriptPostFired;
 import net.runelite.api.events.StatChanged;
 import net.runelite.api.gameval.InterfaceID;
+import net.runelite.api.gameval.VarbitID;
 import net.runelite.api.widgets.Widget;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
@@ -265,29 +266,42 @@ public final class UniqueBatteryPlugin extends Plugin
 	{
 		if (event.getScriptId() != ScriptID.COLLECTION_DRAW_LIST
 			|| client.getGameState() != GameState.LOGGED_IN
-			|| client.getTopLevelWorldView().isInstance())
+			|| client.getVarbitValue(VarbitID.COLLECTION_POH_HOST_BOOK_OPEN) == 1)
 		{
 			return;
 		}
 		Widget header = client.getWidget(InterfaceID.Collection.HEADER_TEXT);
 		Widget items = client.getWidget(InterfaceID.Collection.ITEMS_CONTENTS);
-		if (header == null || items == null || header.isHidden() || header.getChild(0) == null
-			|| header.getChildren() == null || items.getChildren() == null)
+		if (header == null || items == null || header.isHidden())
 		{
 			return;
 		}
-		String source = Text.removeTags(header.getChild(0).getText()).trim();
+		Widget[] headerChildren = collectionLogChildren(header);
+		Widget[] itemChildren = collectionLogChildren(items);
+		if (headerChildren == null || headerChildren.length == 0 || headerChildren[0] == null || itemChildren == null)
+		{
+			return;
+		}
+		String source = Text.removeTags(headerChildren[0].getText()).trim();
 		if ("The Doom of Mokhaiotl".equalsIgnoreCase(source))
 		{
 			source = DoomRates.NAME;
 		}
 		BossProgress.Entry boss = bossProgress.forBoss(source);
-		if (boss == null || !loadProfile() || boss.hasBaseline())
+		if (boss == null || !loadProfile())
 		{
 			return;
 		}
+		if (boss.hasBaseline())
+		{
+			if (boss.startTracking())
+			{
+				saveCollectionBaseline();
+			}
+			return;
+		}
 		int completed = -1;
-		for (Widget child : header.getChildren())
+		for (Widget child : headerChildren)
 		{
 			if (child != null && child.getText() != null)
 			{
@@ -304,7 +318,7 @@ public final class UniqueBatteryPlugin extends Plugin
 		}
 		Map<String, Double> tracked = UniqueDrops.forSource(uniqueDrops, source);
 		int uniques = 0;
-		for (Widget child : items.getChildren())
+		for (Widget child : itemChildren)
 		{
 			if (child != null && child.getItemId() > 0 && child.getOpacity() == 0)
 			{
@@ -317,10 +331,21 @@ public final class UniqueBatteryPlugin extends Plugin
 		}
 		if (boss.seed(completed, uniques))
 		{
-			progressDirty = true;
-			saveState();
-			updateActivity();
+			saveCollectionBaseline();
 		}
+	}
+
+	private static Widget[] collectionLogChildren(Widget widget)
+	{
+		Widget[] children = widget.getDynamicChildren();
+		return children == null || children.length == 0 ? widget.getChildren() : children;
+	}
+
+	private void saveCollectionBaseline()
+	{
+		progressDirty = true;
+		saveState();
+		updateActivity();
 	}
 
 	private void tickActivity(Player player)

@@ -198,6 +198,7 @@ final class BossProgress
 			}
 			seeded = true;
 			estimated = true;
+			startTracking();
 			return true;
 		}
 

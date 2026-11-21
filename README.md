@@ -39,7 +39,7 @@ Open **Rate guide** under the battery for the formatting rules. When signed in, 
 
 The **Dry streaks** tab tracks Zulrah, Vorkath, Kraken, the four original God Wars generals, and Doom of Mokhaiotl. Each completion without a tracked unique moves the score farther below zero. A unique within the expected rate settles the row at zero, and an overdue unique settles it above zero by the overdue amount. The next dry streak starts again from zero. Each character's score persists across sessions and advances with completions, regardless of time away. The battery drains at its configured rates. Doom's score uses the depth of each claimed run and the three gear uniques. [OSRS Wiki Doom loot table](https://oldschool.runescape.wiki/w/Doom_of_Mokhaiotl#Depth_Loot_Mechanics)
 
-The first time you fight a supported boss, the tab shows its saved Collection Log estimate if available. When the tab asks for a baseline, open that boss's Collection Log page once from the normal game world. The estimate uses surplus kills after accounting for logged uniques. Doom uses the deep-delve counter for its estimate. A unique observed by the plugin starts a newly tracked streak.
+Opening a supported boss's page in your Collection Log shows its starting estimate immediately. The tab also prompts for the page when you first fight a boss with no saved baseline. The estimate uses surplus kills after accounting for logged uniques. Doom uses the **Deep delves** counter for its estimate. A unique observed by the plugin starts a newly tracked streak.
 
 ## Refill
 

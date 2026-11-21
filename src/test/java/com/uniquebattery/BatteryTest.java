@@ -128,15 +128,16 @@ public class BatteryTest
 	{
 		assertEquals(1_234, CollectionLogBaseline.completionCount("<col=ff00ff>Zulrah kills: 1,234</col>", false));
 		assertEquals(42, CollectionLogBaseline.completionCount("Delves completed: 123<br>Deep delves completed: 42", true));
+		assertEquals(1_234, CollectionLogBaseline.completionCount(
+			"Total delves: 2,000<br>Deep delves:\u00a0<col=ffffff>1,234</col><br>Deepest delve: 9", true));
+		assertEquals(-1, CollectionLogBaseline.completionCount("Total delves: 2,000<br>Deepest delve: 9", true));
 		assertEquals(-1, CollectionLogBaseline.completionCount("Obtained: 3/6", false));
 		BossProgress progress = new BossProgress();
 		progress.updateRates(Map.of("zulrah", Map.of("magic fang", 100.0)));
 		BossProgress.Entry zulrah = progress.forBoss("Zulrah");
 		assertTrue(zulrah.seed(199, 1));
-		assertTrue(progress.statuses().isEmpty());
+		assertEquals("Collection Log estimate", progress.statuses().get(0).baseline);
 		progress.load(progress.save());
-		assertTrue(progress.statuses().isEmpty());
-		assertTrue(zulrah.startTracking());
 		assertEquals("Collection Log estimate", progress.statuses().get(0).baseline);
 		assertEquals(-0.99, zulrah.score(), 1e-9);
 		zulrah.complete(1, true);
@@ -157,5 +158,11 @@ public class BatteryTest
 		BossProgress.Entry doom = new BossProgress().forBoss(DoomRates.NAME);
 		doom.complete(1, false, DoomRates.gearExposure(8));
 		assertEquals(-DoomRates.gearExposure(8), doom.score(), 1e-9);
+
+		BossProgress progress = new BossProgress();
+		int deepDelves = CollectionLogBaseline.completionCount("Total delves: 400<br>Deep delves: 180", true);
+		assertTrue(progress.forBoss(DoomRates.NAME).seed(deepDelves, 0));
+		assertEquals(DoomRates.NAME, progress.statuses().get(0).name);
+		assertEquals(-1, progress.statuses().get(0).score, 1e-9);
 	}
 }

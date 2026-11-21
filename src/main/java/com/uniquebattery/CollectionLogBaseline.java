@@ -8,7 +8,7 @@ import net.runelite.client.util.Text;
 final class CollectionLogBaseline
 {
 	private static final Pattern COUNTER = Pattern.compile(
-		"(?i)^(?<label>.*(?:kill(?:s| count)|delves completed))\\s*:\\s*(?<count>[0-9][0-9,]*)$");
+		"(?i)^(?<label>.*(?:kill(?:s| count)|deep delves(?: completed)?))\\s*:\\s*(?<count>[0-9][0-9,]*)$");
 
 	private CollectionLogBaseline()
 	{
@@ -16,7 +16,8 @@ final class CollectionLogBaseline
 
 	static int completionCount(String widgetText, boolean doom)
 	{
-		for (String line : Text.removeTags(widgetText.replace("<br>", "\n")).split("\\R"))
+		String plain = Text.removeTags(widgetText.replace("<br>", "\n")).replace('\u00a0', ' ');
+		for (String line : plain.split("\\R"))
 		{
 			Matcher match = COUNTER.matcher(line.trim());
 			if (match.matches())
